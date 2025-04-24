@@ -39,3 +39,12 @@ To renew your certificate (Certbot will only renew if it's <30 days from expiry)
 ```bash
 ./docker_certbot_renew.sh
 ```
+
+## iii Service Commitment: Set up or renew SSL
+
+Submitting this form to set up or renew an SSL
+
+https://iii.rightanswers.com/portal/app/portlets/results/viewsolution.jsp?solutionid=151209171122621
+
+
+
