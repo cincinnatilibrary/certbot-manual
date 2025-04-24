@@ -1,0 +1,8 @@
+# Let’s Encrypt certs and temp files
+config/
+logs/
+work/
+secrets/
+
+# Shell script logs (if you make any)
+*.log
