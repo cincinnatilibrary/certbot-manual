@@ -9,6 +9,9 @@ docker run -it --rm \
   --dns-cloudflare \
   --dns-cloudflare-credentials /secrets/cloudflare.ini \
   --dns-cloudflare-propagation-seconds 30 \
+  --key-type rsa \
+  --rsa-key-size 4096 \
+  --cert-name cincinnatilibrary.org \
   -d cincinnatilibrary.org \
   -d '*.cincinnatilibrary.org' \
   --non-interactive \
