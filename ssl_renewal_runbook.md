@@ -2,19 +2,19 @@
 
 _Last updated: **May 6 2025**_
 
-This document records the exact procedure (and fixes) used to refresh the WebPAC/Encore certificates on **sierra‑test‑rSierra 6.4.0_4**.  
-Keep it with your change‑control records.
+This document captures the **exact, tested procedure** for refreshing WebPAC / Encore certificates on Sierra hosts.  
+It reflects fixes discovered on **sierra‑test‑rSierra 6.4.0_4** _and_ **sierra‑train‑rSierra 6.3.0_10**.
 
 ---
 
-## 0  Environment & Paths
+## 0  Environment & Key Paths
 
-| Item | Value |
-|------|-------|
-| Working directory on **Sierra host** | `/iiidb/work/rvoelker/` |
-| Default cert path searched by `checkcert` | `/iiidb/http/screens/webpac.crt` |
-| Default key path | `/iiidb/ssl/cert/webpac.key` |
-| Extra product paths that also need the cert | `/iiidb/http/{live,staging}/screens`, `/iiidb/httpkids/{live,staging}/screens`, `/iiidb/http_wpmobile/screens`, `/iiidb/http_encore/live/screens` |
+| Purpose | Path |
+|---------|------|
+| Working directory while logged in as you | `/iiidb/work/rvoelker/` |
+| Primary cert file read by `checkcert` | `/iiidb/http/screens/webpac.crt` |
+| Private key location | `/iiidb/ssl/cert/webpac.key` |
+| Additional product trees (if present) | `/iiidb/http/{live,staging}/screens`<br>`/iiidb/httpkids/{live,staging}/screens`<br>`/iiidb/http_wpmobile/screens`<br>`/iiidb/http_encore/live/screens` |
 
 ---
 
@@ -37,114 +37,108 @@ docker run --rm -it \
      --email ilshelp@chpl.org
 ```
 
-*Resulting files (inside `config/live/cincinnatilibrary.org/`)*  
+**Resulting files** (inside `config/live/cincinnatilibrary.org/`):
 
-| File | Copied to |
-|------|-----------|
-| `privkey.pem`         | `/iiidb/work/rvoelker/new.webpac.key` |
-| `fullchain.pem`       | `/iiidb/work/rvoelker/new.webpac.crt` |
+| Let’s Encrypt output | Copy / paste into Sierra |
+|----------------------|--------------------------|
+| `fullchain.pem` | `/iiidb/work/rvoelker/new.webpac.crt` |
+| `privkey.pem`   | `/iiidb/work/rvoelker/new.webpac.key` |
 
-> **Shortcut we used:** opened `fullchain.pem` & `privkey.pem` in a text editor and simply pasted their contents into the destination files instead of `scp`.
+> **Shortcut:** open the PEMs in a text editor and paste their contents into the destination files on the Sierra host.
 
 ---
 
-## 2  Validate Key ↔ Cert Locally
+## 2  Verify Key ↔ Cert Pair
 
 ```tcsh
 cd /iiidb/work/rvoelker
-# quick modulus check
 openssl x509 -noout -modulus -in new.webpac.crt | openssl md5
-openssl rsa  -noout -modulus -in new.webpac.key | openssl md5
-# should output identical hashes
-
+openssl rsa  -noout -modulus -in new.webpac.key | openssl md5   # must match
 checkcert -v -c new.webpac.crt -k new.webpac.key
 ```
 
 ---
 
-## 3  Back‑up Existing Files (ticket ID example `07999144`)
+## 3  Back‑up Existing Cert & Key  (ticket ID `07999144`)
 
 ```tcsh
 set ticnum = "07999144"
-find /iiidb/http/live/screens -depth -name "*.crt" \
+find /iiidb/http/live/screens -depth -name "*.crt"        \
      -exec sh -c 'cp -p "$1" "${1%.crt}.crt.NS'$ticnum'"' _ {} \;
-find /iiidb/ssl/cert -depth -name "*.key" \
+find /iiidb/ssl/cert -depth -name "*.key"                 \
      -exec sh -c 'cp -p "$1" "${1%.key}.key.NS'$ticnum'"' _ {} \;
 ```
 
 ---
 
-## 4  Deploy the New Certificate
+## 4  Deploy New **Certificate**
 
 ```tcsh
 set SRC_CRT = /iiidb/work/rvoelker/new.webpac.crt
-echo /iiidb/http/{live,staging}/screens \
-     /iiidb/httpkids/{live,staging}/screens \
-     /iiidb/http_wpmobile/screens \
-     /iiidb/http_encore/live/screens \
-     /iiidb/http/screens | \
-xargs -n1 -I{} cp -v "$SRC_CRT" {}
-```
+mkdir -p /iiidb/http/screens       # ensure default path exists
 
-**Fix applied:**  
-*We added `/iiidb/http/screens` to cover the default lookup used by `checkcert`.*
+foreach d ( /iiidb/http/screens                               \
+            /iiidb/http/live/screens /iiidb/http/staging/screens \
+            /iiidb/httpkids/live/screens /iiidb/httpkids/staging/screens \
+            /iiidb/http_wpmobile/screens /iiidb/http_encore/live/screens )
+    if ( -d $d ) then
+        cp -v "$SRC_CRT" "$d/webpac.crt"
+        chown iii:iii "$d/webpac.crt"
+    endif
+end
+```
 
 ---
 
-## 5  Install the Private Key
+## 5  Install New **Private Key**
 
 ```tcsh
 cp -v /iiidb/work/rvoelker/new.webpac.key /iiidb/ssl/cert/webpac.key
+chown iii:iii /iiidb/ssl/cert/webpac.key
 ```
 
 ---
 
-## 6  Final Consistency Check
+## 6  Run Final Consistency Check
 
 ```tcsh
-checkcert -v
-# should report “certificate and private key match”
+checkcert -v     # expect “certificate and private key match”
 ```
-
-> **Problem solved:** earlier failures were due to  
-> 1. missing `/iiidb/http/screens/webpac.crt`  
-> 2. stale key that didn’t match the new cert.
 
 ---
 
-## 7  Restart to Activate
-
-Because some wrapper scripts refused to run as `root`, we performed a **full reboot**:
+## 7  Activate the New Bundle
 
 ```bash
 su - iiiroot
-stoppac -mi          # shuts down middleware cleanly
+stoppac -mi          # orderly shutdown
 exit                 # back to root
-shutdown -r now
+shutdown -r now      # full reboot
 ```
 
-_All services (WebPAC, Tomcat, Junction) auto‑started on boot and loaded the fresh cert._
+All middleware restarts automatically and loads the fresh certificate.
 
 ---
 
-## 8  Post‑restart Verification
+## 8  Post‑reboot Validation
 
 ```tcsh
-# as any user
-openssl s_client -connect catalog.cincinnatilibrary.org:443 -servername catalog.cincinnatilibrary.org </dev/null |   openssl x509 -noout -dates -subject -issuer
-
-# Browser padlock check – OK
+openssl s_client -connect catalog.cincinnatilibrary.org:443 \
+                 -servername catalog.cincinnatilibrary.org </dev/null | \
+  openssl x509 -noout -dates -subject -issuer
+# verify new Not After date
 ```
 
 ---
 
-## 9  Troubleshooting Cheatsheet
+## 9  Troubleshooting
 
-| Error | Fix |
-|-------|-----|
-| `No such file or directory` for `/iiidb/http/screens/webpac.crt` | Copy cert into that exact directory or add the directory to the cert‑deploy list. |
-| `X509_check_private_key:key values mismatch` | Key & cert do not belong together – re‑export matching pair from Certbot. |
-| `junction restart … may not be executed by root` | `su - iii` first, then run the restart. |
-| Wrapper refuses reload | Kill the PID (`is '[w]ebpac' | awk '{print "kill -9",$2}' \| sh`) and let it respawn, or reboot. |
+| Symptom | Resolution |
+|---------|------------|
+| `No such file or directory` for `webpac.crt` | Ensure `/iiidb/http/screens` exists & copy the cert there. |
+| `key values mismatch` | Copy the matching key and `chown iii:iii`. |
+| `junction restart … may not be executed by root` | `su - iii` first, or reboot. |
 
 ---
+
+
